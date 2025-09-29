@@ -16,14 +16,17 @@ const client = new Client({
 const SUPPORT_ROLE_IDS = process.env.SUPPORT_ROLE_IDS ? process.env.SUPPORT_ROLE_IDS.split(',').filter(id => id.trim()) : [];
 const GUILD_ID = process.env.GUILD_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID;
+const SUBSCRIPTION_ROLE_ID = process.env.SUBSCRIPTION_ROLE_ID;
+const SUBSCRIPTION_CHANNEL_ID = process.env.SUBSCRIPTION_CHANNEL_ID;
 const PORT = process.env.PORT || 3000;
 
 // OpenRouter configuration
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'mistralai/mistral-7b-instruct:free';
 
-// Store active tickets
+// Store active tickets and subscriptions
 const activeTickets = new Map();
+const activeSubscriptions = new Map(); // userid -> expiry timestamp
 
 // Create HTTP server for Render
 const server = http.createServer((req, res) => {
@@ -63,6 +66,10 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('setup-tickets')
                 .setDescription('Setup the ticket system in this channel')
+                .toJSON(),
+            new SlashCommandBuilder()
+                .setName('setup-subscriptions')
+                .setDescription('Setup the subscription system in this channel')
                 .toJSON()
         ];
 
@@ -72,6 +79,10 @@ client.once('ready', async () => {
         );
         
         console.log('✅ Slash commands registered');
+        
+        // Start subscription check interval
+        startSubscriptionChecker();
+        
     } catch (error) {
         console.error('Error registering commands:', error);
     }
@@ -83,6 +94,8 @@ client.on('interactionCreate', async (interaction) => {
 
     if (interaction.commandName === 'setup-tickets') {
         await setupTicketSystem(interaction);
+    } else if (interaction.commandName === 'setup-subscriptions') {
+        await setupSubscriptionSystem(interaction);
     } else if (interaction.commandName === 'chat') {
         await handleChatCommand(interaction);
     } else if (interaction.commandName === 'close') {
@@ -100,10 +113,12 @@ client.on('interactionCreate', async (interaction) => {
         await handleMoreSupport(interaction);
     } else if (interaction.customId === 'ask_staff') {
         await handleAskStaff(interaction);
+    } else if (interaction.customId === 'buy_subscription') {
+        await handleSubscriptionPurchase(interaction);
     }
 });
 
-// Setup ticket system command
+// Setup ticket system command (REMOVED SUBSCRIPTION INFO)
 async function setupTicketSystem(interaction) {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return await interaction.reply({ 
@@ -117,8 +132,7 @@ async function setupTicketSystem(interaction) {
         .setDescription('Need help? Click the button below to create a support ticket!')
         .setColor(0x2ecc71)
         .addFields(
-            { name: 'What we can help with:', value: '• Buying issues\n• Subscription questions\n• Payment problems\n• General support' },
-            { name: 'Premium Benefits (£1/month):', value: '• 🐉 Dragon Fly each month\n• 💰 10sx Shekels monthly\n• 💬 Priority chat access\n• 🎨 Priority chat color\n• 🎁 Prismatic pet giveaways' }
+            { name: 'What we can help with:', value: '• Buying issues\n• Payment problems\n• General support\n• Account issues' }
         );
 
     const row = new ActionRowBuilder()
@@ -132,6 +146,116 @@ async function setupTicketSystem(interaction) {
 
     await interaction.channel.send({ embeds: [embed], components: [row] });
     await interaction.reply({ content: '✅ Ticket system setup complete!', ephemeral: true });
+}
+
+// Setup subscription system command (ADDED PAYMENT CONFIRMATION INSTRUCTIONS)
+async function setupSubscriptionSystem(interaction) {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return await interaction.reply({ 
+            content: 'You need administrator permissions to setup subscriptions.', 
+            ephemeral: true 
+        });
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle('🌱 Premium Subscription')
+        .setDescription('Get access to exclusive benefits with our premium subscription!')
+        .setColor(0xf39c12)
+        .addFields(
+            { 
+                name: '💰 Price: £1 per month', 
+                value: 'One-time payment each month - cancel anytime' 
+            },
+            { 
+                name: '🎁 Premium Benefits:', 
+                value: '• 🐉 A dragon fly each month\n• 💰 10sx shekels monthly currency\n• 💬 Priority chat access\n• 🎨 Priority chat color in chat\n• 🎁 Prismatic pet giveaways' 
+            },
+            { 
+                name: '⚠️ Important:', 
+                value: '**No refunds** - All sales are final. Please ensure you want to purchase before clicking Buy Now.' 
+            },
+            { 
+                name: '📝 After Purchase:', 
+                value: '**Once you have bought:**\n1. Create a support ticket\n2. State that you have purchased the subscription\n3. Click "Ask Staff"\n4. Send a screenshot of your payment confirmation\n\nThis helps us verify and activate your benefits quickly!' 
+            }
+        )
+        .setFooter({ text: 'Click Buy Now to get started!' });
+
+    const row = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('buy_subscription')
+                .setLabel('Buy Now - £1/month')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('💰')
+        );
+
+    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: '✅ Subscription system setup complete!', ephemeral: true });
+}
+
+// Handle subscription purchase
+async function handleSubscriptionPurchase(interaction) {
+    const paypalLink = 'https://paypal.me/growagarden2323';
+    
+    // Send PayPal link with updated instructions
+    const paymentEmbed = new EmbedBuilder()
+        .setTitle('🌱 Complete Your Purchase')
+        .setDescription(`Please complete your payment using the link below:\n\n[**Click here to pay with PayPal**](${paypalLink})\n\n**After payment:**\n1. Create a support ticket\n2. State you have purchased\n3. Click "Ask Staff"\n4. Send payment screenshot\n\nYou will receive your premium role after verification.`)
+        .setColor(0xf39c12)
+        .addFields(
+            { name: '⚠️ Reminder:', value: '**No refunds** - All sales are final' },
+            { name: '💳 Amount:', value: '£1.00 (One month)' },
+            { name: '📸 Verification:', value: 'Please be ready to provide payment screenshot in your support ticket' }
+        );
+
+    await interaction.reply({ 
+        embeds: [paymentEmbed], 
+        ephemeral: true 
+    });
+}
+
+// Subscription checker function
+function startSubscriptionChecker() {
+    setInterval(async () => {
+        const now = Date.now();
+        
+        for (const [userId, expiry] of activeSubscriptions.entries()) {
+            if (now >= expiry) {
+                // Subscription expired
+                try {
+                    const guild = client.guilds.cache.get(GUILD_ID);
+                    const member = await guild.members.fetch(userId).catch(() => null);
+                    
+                    if (member && SUBSCRIPTION_ROLE_ID) {
+                        await member.roles.remove(SUBSCRIPTION_ROLE_ID);
+                        
+                        // Send expiry notice
+                        const expiryEmbed = new EmbedBuilder()
+                            .setTitle('📅 Subscription Expired')
+                            .setDescription('Your premium subscription has run out. You can purchase another month in the subscription channel to regain access to all premium benefits!')
+                            .setColor(0xe74c3c)
+                            .addFields(
+                                { name: 'Benefits Lost:', value: '• 🐉 Dragon Fly\n• 💰 10sx Shekels\n• 💬 Priority Chat\n• 🎨 Priority Color\n• 🎁 Prismatic Pets' },
+                                { name: 'Renew Now:', value: `Visit <#${SUBSCRIPTION_CHANNEL_ID}> to purchase another month!` }
+                            );
+
+                        await member.send({ embeds: [expiryEmbed] }).catch(() => {
+                            console.log('Could not DM user about expiry');
+                        });
+                        
+                        console.log(`📅 Subscription expired for ${member.user.tag}`);
+                    }
+                    
+                    // Remove from active subscriptions
+                    activeSubscriptions.delete(userId);
+                    
+                } catch (error) {
+                    console.error('Error handling subscription expiry:', error);
+                }
+            }
+        }
+    }, 60000); // Check every minute
 }
 
 // Create ticket
@@ -150,11 +274,11 @@ async function createTicket(interaction) {
                 },
                 {
                     id: interaction.user.id,
-                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.AttachFiles]
                 },
                 ...SUPPORT_ROLE_IDS.map(roleId => ({
                     id: roleId,
-                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageMessages]
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageMessages, PermissionsBitField.Flags.AttachFiles]
                 }))
             ]
         });
@@ -174,7 +298,8 @@ async function createTicket(interaction) {
             .setDescription(`Hello ${interaction.user}! Thank you for contacting support. Please describe your issue or question in detail below, and we will help you.`)
             .setColor(0x2ecc71)
             .addFields(
-                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' }
+                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' },
+                { name: 'For subscription purchases:', value: 'Please state you have purchased and include a screenshot of your payment confirmation when you click "Ask Staff"' }
             );
 
         await channel.send({ embeds: [greetingEmbed] });
@@ -349,12 +474,12 @@ async function handleAskStaff(interaction) {
         .setTimestamp();
     
     await interaction.channel.send({ 
-        content: `${roleMentions}\n🚨 Staff assistance requested!`, 
+        content: `${roleMentions}\n🚨 Staff assistance requested!\n\n*User has requested human staff support. Please check their issue above.*`, 
         embeds: [staffEmbed] 
     });
     
     await interaction.reply({ 
-        content: 'Staff have been notified and will assist you shortly!', 
+        content: 'Staff have been notified and will assist you shortly! Please wait for a staff member to respond.', 
         ephemeral: true 
     });
 }
