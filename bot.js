@@ -174,10 +174,7 @@ async function setupSubscriptionSystem(interaction) {
                 name: '⚠️ Important:', 
                 value: '**No refunds** - All sales are final. Please ensure you want to purchase before clicking Buy Now.' 
             },
-            { 
-                name: '📝 After Purchase:', 
-                value: '**Once you have bought:**\n1. Create a support ticket\n2. State that you have purchased the subscription\n3. Click "Ask Staff"\n4. Send a screenshot of your payment confirmation\n\nThis helps us verify and activate your benefits quickly!' 
-            }
+           
         )
         .setFooter({ text: 'Click Buy Now to get started!' });
 
