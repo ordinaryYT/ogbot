@@ -113,8 +113,6 @@ client.on('interactionCreate', async (interaction) => {
         await handleMoreSupport(interaction);
     } else if (interaction.customId === 'ask_staff') {
         await handleAskStaff(interaction);
-    } else if (interaction.customId === 'buy_subscription') {
-        await handleSubscriptionPurchase(interaction);
     }
 });
 
@@ -173,10 +171,6 @@ async function setupSubscriptionSystem(interaction) {
             { 
                 name: '⚠️ Important:', 
                 value: '**No refunds** - All sales are final. Please ensure you want to purchase before clicking Buy Now.' 
-            },
-            { 
-                name: '📝 After Purchase:', 
-                value: '**Once you have bought:**\n1. Create a support ticket\n2. State that you have purchased the subscription\n3. Click "Ask Staff"\n4. Send a screenshot of your payment confirmation\n\nThis helps us verify and activate your benefits quickly!' 
             }
         )
         .setFooter({ text: 'Click Buy Now to get started!' });
@@ -184,72 +178,14 @@ async function setupSubscriptionSystem(interaction) {
     const row = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId('buy_subscription')
                 .setLabel('Buy Now - £1/month')
-                .setStyle(ButtonStyle.Success)
+                .setStyle(ButtonStyle.Link)
+                .setURL('https://paypal.me/growagarden2323')
                 .setEmoji('💰')
         );
 
     await interaction.channel.send({ embeds: [embed], components: [row] });
     await interaction.reply({ content: '✅ Subscription system setup complete!', ephemeral: true });
-}
-
-// Handle subscription purchase - DIRECT PAYPAL LINK (NO EXTRA EMBED)
-async function handleSubscriptionPurchase(interaction) {
-    const paypalLink = 'https://paypal.me/growagarden2323';
-    
-    // Create button that goes directly to PayPal
-    const paypalRow = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setLabel('Pay with PayPal')
-                .setStyle(ButtonStyle.Link)
-                .setURL(paypalLink)
-                .setEmoji('💳')
-        );
-
-    await interaction.reply({ 
-        content: `**Redirecting to PayPal...**\n\nAfter payment, please:\n1. Create a support ticket\n2. State you have purchased\n3. Click "Ask Staff"\n4. Send payment screenshot\n\n⚠️ **No refunds** - All sales are final\n💳 **Amount:** £1.00 (One month)`,
-        components: [paypalRow],
-        ephemeral: true 
-    });
-
-    // Schedule role assignment after 1 minute (auto-assume payment)
-    setTimeout(async () => {
-        try {
-            const guild = client.guilds.cache.get(GUILD_ID);
-            const member = await guild.members.fetch(interaction.user.id);
-            const subscriptionRole = guild.roles.cache.get(SUBSCRIPTION_ROLE_ID);
-            
-            if (subscriptionRole) {
-                await member.roles.add(subscriptionRole);
-                
-                // Calculate expiry (1 month from now)
-                const expiryDate = new Date();
-                expiryDate.setMonth(expiryDate.getMonth() + 1);
-                
-                // Store subscription
-                activeSubscriptions.set(interaction.user.id, expiryDate.getTime());
-                
-                // Send confirmation
-                const successEmbed = new EmbedBuilder()
-                    .setTitle('✅ Subscription Activated!')
-                    .setDescription(`Thank you for your purchase! Your premium subscription has been activated and will expire on ${expiryDate.toLocaleDateString()}.`)
-                    .setColor(0x2ecc71)
-                    .addFields(
-                        { name: 'Benefits Active:', value: '• 🐉 Dragon Fly\n• 💰 10sx Shekels\n• 💬 Priority Chat\n• 🎨 Priority Color\n• 🎁 Prismatic Pets' }
-                    );
-
-                await interaction.user.send({ embeds: [successEmbed] }).catch(() => {
-                    console.log('Could not DM user');
-                });
-                
-                console.log(`✅ Subscription activated for ${interaction.user.tag}`);
-            }
-        } catch (error) {
-            console.error('Error assigning subscription role:', error);
-        }
-    }, 60000); // 1 minute delay
 }
 
 // Subscription checker function
@@ -335,8 +271,7 @@ async function createTicket(interaction) {
             .setDescription(`Hello ${interaction.user}! Thank you for contacting support. Please describe your issue or question in detail below, and we will help you.`)
             .setColor(0x2ecc71)
             .addFields(
-                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' },
-                { name: 'For subscription purchases:', value: 'Please state you have purchased and include a screenshot of your payment confirmation when you click "Ask Staff"' }
+                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' }
             );
 
         await channel.send({ embeds: [greetingEmbed] });
