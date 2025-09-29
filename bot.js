@@ -116,7 +116,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
-// Setup ticket system command (REMOVED SUBSCRIPTION INFO)
+// Setup ticket system command
 async function setupTicketSystem(interaction) {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return await interaction.reply({ 
