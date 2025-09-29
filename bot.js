@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, SlashCommandBuilder, Routes, REST } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, SlashCommandBuilder, Routes, REST, ApplicationCommandType, ContextMenuCommandBuilder } = require('discord.js');
 const axios = require('axios');
 require('dotenv').config();
 
@@ -12,17 +12,17 @@ const client = new Client({
 });
 
 // Configuration
-const SUPPORT_ROLE_IDS = process.env.SUPPORT_ROLE_IDS.split(',');
+const SUPPORT_ROLE_IDS = process.env.SUPPORT_ROLE_IDS ? process.env.SUPPORT_ROLE_IDS.split(',').filter(id => id.trim()) : [];
 const GUILD_ID = process.env.GUILD_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID;
+const TICKET_CHANNEL_ID = process.env.TICKET_CHANNEL_ID; // Channel where ticket button appears
 
 // OpenRouter configuration
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL = 'mistralai/mistral-7b-instruct:free';
 
-// Store active tickets and chat sessions
+// Store active tickets
 const activeTickets = new Map();
-const staffChatSessions = new Map();
 
 client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
@@ -39,6 +39,14 @@ client.once('ready', async () => {
                     option.setName('message')
                         .setDescription('The message to send')
                         .setRequired(true))
+                .toJSON(),
+            new SlashCommandBuilder()
+                .setName('close')
+                .setDescription('Close this ticket (Staff only)')
+                .toJSON(),
+            new SlashCommandBuilder()
+                .setName('setup-tickets')
+                .setDescription('Setup the ticket system in this channel (Admin only)')
                 .toJSON()
         ];
 
@@ -53,27 +61,16 @@ client.once('ready', async () => {
     }
 });
 
-// Ticket creation system
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    
-    // Check if message is in a ticket channel
-    if (message.channel.parentId === TICKET_CATEGORY_ID && message.channel.name.startsWith('ticket-')) {
-        const ticketData = activeTickets.get(message.channel.id);
-        
-        if (ticketData && !ticketData.awaitingStaff) {
-            // User is responding in ticket
-            await handleUserResponse(message, ticketData);
-        }
-    }
-});
-
 // Handle slash commands
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isCommand()) return;
 
-    if (interaction.commandName === 'chat') {
+    if (interaction.commandName === 'setup-tickets') {
+        await setupTicketSystem(interaction);
+    } else if (interaction.commandName === 'chat') {
         await handleChatCommand(interaction);
+    } else if (interaction.commandName === 'close') {
+        await handleCloseCommand(interaction);
     }
 });
 
@@ -87,22 +84,18 @@ client.on('interactionCreate', async (interaction) => {
         await handleMoreSupport(interaction);
     } else if (interaction.customId === 'ask_staff') {
         await handleAskStaff(interaction);
-    } else if (interaction.customId === 'close_ticket') {
-        await closeTicket(interaction);
     }
 });
 
-// Create ticket button
-async function createTicketButton() {
-    const row = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('create_ticket')
-                .setLabel('Create Support Ticket')
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('🎫')
-        );
-    
+// Setup ticket system command
+async function setupTicketSystem(interaction) {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return await interaction.reply({ 
+            content: '❌ You need administrator permissions to setup tickets.', 
+            ephemeral: true 
+        });
+    }
+
     const embed = new EmbedBuilder()
         .setTitle('🌱 Garden Marketplace Support')
         .setDescription('Need help with your garden marketplace experience? Click the button below to create a support ticket!')
@@ -112,12 +105,22 @@ async function createTicketButton() {
             { name: 'Premium Benefits (£1/month):', value: '• 🐉 Dragon Fly each month\n• 💰 10 Shekels monthly\n• 💬 Priority chat access\n• 🎨 Priority chat color\n• 🎁 Prismatic pet giveaways' }
         );
 
-    return { embeds: [embed], components: [row] };
+    const row = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('create_ticket')
+                .setLabel('Create Support Ticket')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🎫')
+        );
+
+    await interaction.channel.send({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: '✅ Ticket system setup complete!', ephemeral: true });
 }
 
 // Create ticket
 async function createTicket(interaction) {
-    const channelName = `ticket-${interaction.user.username.toLowerCase()}-${Date.now().toString().slice(-4)}`;
+    const channelName = `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString().slice(-4)}`;
     
     try {
         const channel = await interaction.guild.channels.create({
@@ -135,7 +138,7 @@ async function createTicket(interaction) {
                 },
                 ...SUPPORT_ROLE_IDS.map(roleId => ({
                     id: roleId,
-                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageMessages]
                 }))
             ]
         });
@@ -145,19 +148,18 @@ async function createTicket(interaction) {
             userId: interaction.user.id,
             userName: interaction.user.username,
             problem: null,
-            awaitingStaff: false,
-            messages: []
+            messages: [],
+            awaitingResponse: true
         });
 
-        // Send greeting message
+        // Send greeting message (NOT marked as AI)
         const greetingEmbed = new EmbedBuilder()
             .setTitle('🌱 Welcome to Garden Marketplace Support!')
-            .setDescription(`Hello ${interaction.user}! Thank you for contacting support. Please describe your issue or question in detail, and our AI assistant will help you.`)
+            .setDescription(`Hello ${interaction.user}! Thank you for contacting support. Please describe your issue or question in detail below, and our AI assistant will help you.`)
             .setColor(0x2ecc71)
             .addFields(
                 { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' }
-            )
-            .setFooter({ text: 'Our AI will respond shortly...' });
+            );
 
         await channel.send({ embeds: [greetingEmbed] });
         
@@ -175,13 +177,29 @@ async function createTicket(interaction) {
     }
 }
 
-// Handle user response in ticket
-async function handleUserResponse(message, ticketData) {
-    if (message.author.id !== ticketData.userId) return;
+// Handle messages in ticket channels
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
     
-    // Store the problem
+    // Check if message is in a ticket channel
+    if (message.channel.parentId === TICKET_CATEGORY_ID && message.channel.name.startsWith('ticket-')) {
+        const ticketData = activeTickets.get(message.channel.id);
+        
+        if (ticketData && ticketData.awaitingResponse && message.author.id === ticketData.userId) {
+            // User is responding with their problem
+            await handleUserProblem(message, ticketData);
+        } else if (ticketData && !ticketData.awaitingResponse && message.author.id === ticketData.userId) {
+            // User is responding to AI for more support
+            await handleUserFollowup(message, ticketData);
+        }
+    }
+});
+
+// Handle user's initial problem description
+async function handleUserProblem(message, ticketData) {
     ticketData.problem = message.content;
     ticketData.messages.push({ role: 'user', content: message.content });
+    ticketData.awaitingResponse = false;
     
     // Send typing indicator
     await message.channel.sendTyping();
@@ -193,7 +211,7 @@ async function handleUserResponse(message, ticketData) {
         // Add AI response to messages
         ticketData.messages.push({ role: 'assistant', content: aiResponse });
         
-        // Create response embed with AI disclosure
+        // Create response embed WITH AI disclosure
         const responseEmbed = new EmbedBuilder()
             .setDescription(aiResponse)
             .setColor(0x3498db)
@@ -201,7 +219,7 @@ async function handleUserResponse(message, ticketData) {
                 text: '🔮 This message was AI-generated by Ordinary AI | Provider: Ordinary AI' 
             });
         
-        // Create buttons
+        // Create support buttons
         const buttonRow = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
@@ -225,6 +243,166 @@ async function handleUserResponse(message, ticketData) {
         console.error('Error generating AI response:', error);
         await message.channel.send('❌ Sorry, I encountered an error. Please try again or ask staff for help.');
     }
+}
+
+// Handle user follow-up messages
+async function handleUserFollowup(message, ticketData) {
+    ticketData.messages.push({ role: 'user', content: message.content });
+    
+    // Send typing indicator
+    await message.channel.sendTyping();
+    
+    try {
+        // Generate AI response
+        const aiResponse = await generateAIResponse(ticketData.messages);
+        
+        // Add AI response to messages
+        ticketData.messages.push({ role: 'assistant', content: aiResponse });
+        
+        // Create response embed WITH AI disclosure
+        const responseEmbed = new EmbedBuilder()
+            .setDescription(aiResponse)
+            .setColor(0x3498db)
+            .setFooter({ 
+                text: '🔮 This message was AI-generated by Ordinary AI | Provider: Ordinary AI' 
+            });
+        
+        // Create support buttons again
+        const buttonRow = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('need_more_support')
+                    .setLabel('Need More Support')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('❓'),
+                new ButtonBuilder()
+                    .setCustomId('ask_staff')
+                    .setLabel('Ask Human Staff')
+                    .setStyle(ButtonStyle.Danger)
+                    .setEmoji('👥')
+            );
+        
+        await message.channel.send({ 
+            embeds: [responseEmbed], 
+            components: [buttonRow] 
+        });
+        
+    } catch (error) {
+        console.error('Error generating AI response:', error);
+        await message.channel.send('❌ Sorry, I encountered an error. Please try again or ask staff for help.');
+    }
+}
+
+// Handle "Need More Support" button
+async function handleMoreSupport(interaction) {
+    const ticketData = activeTickets.get(interaction.channel.id);
+    
+    if (!ticketData) {
+        return await interaction.reply({ 
+            content: '❌ Ticket data not found.', 
+            ephemeral: true 
+        });
+    }
+    
+    await interaction.reply({ 
+        content: 'Please continue describing your issue, and I\'ll provide more assistance!', 
+        ephemeral: false 
+    });
+    
+    ticketData.awaitingResponse = true;
+}
+
+// Handle "Ask Staff" button
+async function handleAskStaff(interaction) {
+    const ticketData = activeTickets.get(interaction.channel.id);
+    
+    if (!ticketData) {
+        return await interaction.reply({ 
+            content: '❌ Ticket data not found.', 
+            ephemeral: true 
+        });
+    }
+    
+    // Ping support roles
+    const roleMentions = SUPPORT_ROLE_IDS.map(id => `<@&${id}>`).join(' ');
+    
+    const staffEmbed = new EmbedBuilder()
+        .setTitle('👥 Staff Assistance Requested')
+        .setDescription(`A user has requested human staff support.\n\n**User:** <@${ticketData.userId}>\n**Issue:** ${ticketData.problem || 'Not specified'}`)
+        .setColor(0xe74c3c)
+        .setTimestamp();
+    
+    await interaction.channel.send({ 
+        content: `${roleMentions}\n🚨 Staff assistance requested!`, 
+        embeds: [staffEmbed] 
+    });
+    
+    await interaction.reply({ 
+        content: 'Staff have been notified and will assist you shortly!', 
+        ephemeral: true 
+    });
+}
+
+// Handle /chat command for staff
+async function handleChatCommand(interaction) {
+    // Check if user has support role
+    const hasSupportRole = interaction.member.roles.cache.some(role => 
+        SUPPORT_ROLE_IDS.includes(role.id)
+    );
+    
+    if (!hasSupportRole) {
+        return await interaction.reply({ 
+            content: '❌ This command is for staff only.', 
+            ephemeral: true 
+        });
+    }
+    
+    const message = interaction.options.getString('message');
+    
+    const staffEmbed = new EmbedBuilder()
+        .setDescription(message)
+        .setColor(0x9b59b6)
+        .setFooter({ 
+            text: `💬 This message was written by staff member ${interaction.user.username}` 
+        });
+    
+    await interaction.reply({ 
+        embeds: [staffEmbed] 
+    });
+}
+
+// Handle /close command for staff
+async function handleCloseCommand(interaction) {
+    // Check if user has support role
+    const hasSupportRole = interaction.member.roles.cache.some(role => 
+        SUPPORT_ROLE_IDS.includes(role.id)
+    );
+    
+    if (!hasSupportRole) {
+        return await interaction.reply({ 
+            content: '❌ This command is for staff only.', 
+            ephemeral: true 
+        });
+    }
+    
+    // Check if in a ticket channel
+    if (!interaction.channel.name.startsWith('ticket-')) {
+        return await interaction.reply({ 
+            content: '❌ This command can only be used in ticket channels.', 
+            ephemeral: true 
+        });
+    }
+    
+    await interaction.reply('🔒 Closing this ticket in 5 seconds...');
+    
+    setTimeout(async () => {
+        try {
+            await interaction.channel.delete();
+            activeTickets.delete(interaction.channel.id);
+        } catch (error) {
+            console.error('Error deleting channel:', error);
+        }
+    }, 5000);
 }
 
 // Generate AI response using OpenRouter
@@ -272,158 +450,5 @@ Always maintain a helpful, garden-themed tone while providing practical support.
     return response.data.choices[0].message.content;
 }
 
-// Handle "Need More Support" button
-async function handleMoreSupport(interaction) {
-    const ticketData = activeTickets.get(interaction.channel.id);
-    
-    if (!ticketData) {
-        return await interaction.reply({ 
-            content: '❌ Ticket data not found.', 
-            ephemeral: true 
-        });
-    }
-    
-    await interaction.reply({ 
-        content: 'Please continue describing your issue, and I\'ll provide more assistance!', 
-        ephemeral: false 
-    });
-    
-    ticketData.awaitingStaff = false;
-}
-
-// Handle "Ask Staff" button
-async function handleAskStaff(interaction) {
-    const ticketData = activeTickets.get(interaction.channel.id);
-    
-    if (!ticketData) {
-        return await interaction.reply({ 
-            content: '❌ Ticket data not found.', 
-            ephemeral: true 
-        });
-    }
-    
-    // Ping support roles
-    const roleMentions = SUPPORT_ROLE_IDS.map(id => `<@&${id}>`).join(' ');
-    
-    const staffEmbed = new EmbedBuilder()
-        .setTitle('👥 Staff Assistance Requested')
-        .setDescription(`A user has requested human staff support.\n\n**User:** <@${ticketData.userId}>\n**Issue:** ${ticketData.problem || 'Not specified'}`)
-        .setColor(0xe74c3c)
-        .setTimestamp();
-    
-    await interaction.channel.send({ 
-        content: `${roleMentions}\n🚨 Staff assistance requested!`, 
-        embeds: [staffEmbed] 
-    });
-    
-    await interaction.reply({ 
-        content: 'Staff have been notified and will assist you shortly!', 
-        ephemeral: true 
-    });
-    
-    ticketData.awaitingStaff = true;
-    
-    // Add close ticket button for staff
-    const closeRow = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('close_ticket')
-                .setLabel('Close Ticket')
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji('🔒')
-        );
-    
-    await interaction.channel.send({ 
-        content: 'Staff can close this ticket when resolved:', 
-        components: [closeRow] 
-    });
-}
-
-// Close ticket
-async function closeTicket(interaction) {
-    const ticketData = activeTickets.get(interaction.channel.id);
-    
-    if (!ticketData) {
-        return await interaction.reply({ 
-            content: '❌ Ticket data not found.', 
-            ephemeral: true 
-        });
-    }
-    
-    // Check if user has support role
-    const hasSupportRole = interaction.member.roles.cache.some(role => 
-        SUPPORT_ROLE_IDS.includes(role.id)
-    );
-    
-    if (!hasSupportRole && interaction.user.id !== ticketData.userId) {
-        return await interaction.reply({ 
-            content: '❌ Only staff or the ticket creator can close tickets.', 
-            ephemeral: true 
-        });
-    }
-    
-    await interaction.channel.send('🔒 Closing this ticket in 5 seconds...');
-    
-    setTimeout(async () => {
-        try {
-            await interaction.channel.delete();
-            activeTickets.delete(interaction.channel.id);
-        } catch (error) {
-            console.error('Error deleting channel:', error);
-        }
-    }, 5000);
-    
-    await interaction.reply({ 
-        content: 'Ticket is being closed...', 
-        ephemeral: true 
-    });
-}
-
-// Handle /chat command for staff
-async function handleChatCommand(interaction) {
-    // Check if user has support role
-    const hasSupportRole = interaction.member.roles.cache.some(role => 
-        SUPPORT_ROLE_IDS.includes(role.id)
-    );
-    
-    if (!hasSupportRole) {
-        return await interaction.reply({ 
-            content: '❌ This command is for staff only.', 
-            ephemeral: true 
-        });
-    }
-    
-    const message = interaction.options.getString('message');
-    
-    // Generate AI response
-    await interaction.deferReply();
-    
-    try {
-        const aiResponse = await generateAIResponse([
-            { role: 'user', content: message }
-        ]);
-        
-        const staffEmbed = new EmbedBuilder()
-            .setDescription(aiResponse)
-            .setColor(0x9b59b6)
-            .setFooter({ 
-                text: `💬 Staff message requested by ${interaction.user.username} | 🔮 AI-generated by Ordinary AI` 
-            });
-        
-        await interaction.editReply({ 
-            embeds: [staffEmbed] 
-        });
-        
-    } catch (error) {
-        console.error('Error in /chat command:', error);
-        await interaction.editReply({ 
-            content: '❌ Failed to generate AI response.' 
-        });
-    }
-}
-
 // Start the bot
 client.login(process.env.DISCORD_TOKEN);
-
-// Export for Render
-module.exports = { createTicketButton };
