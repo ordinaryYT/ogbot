@@ -245,7 +245,7 @@ async function handleUserProblem(message, ticketData) {
                     .setEmoji('❓'),
                 new ButtonBuilder()
                     .setCustomId('ask_staff')
-                    .setLabel('Ask Human Staff')
+                    .setLabel('Ask Staff')
                     .setStyle(ButtonStyle.Danger)
                     .setEmoji('👥')
             );
