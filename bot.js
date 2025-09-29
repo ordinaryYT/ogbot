@@ -171,6 +171,10 @@ async function setupSubscriptionSystem(interaction) {
             { 
                 name: '⚠️ Important:', 
                 value: '**No refunds** - All sales are final. Please ensure you want to purchase before clicking Buy Now.' 
+            },
+            { 
+                name: '📝 After Purchase:', 
+                value: '**Once you have bought:**\n1. Create a support ticket\n2. State that you have purchased the subscription\n3. Click "Ask Staff"\n4. Send a screenshot of your payment confirmation\n\nThis helps us verify and activate your benefits quickly!' 
             }
         )
         .setFooter({ text: 'Click Buy Now to get started!' });
@@ -271,7 +275,8 @@ async function createTicket(interaction) {
             .setDescription(`Hello ${interaction.user}! Thank you for contacting support. Please describe your issue or question in detail below, and we will help you.`)
             .setColor(0x2ecc71)
             .addFields(
-                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' }
+                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' },
+                { name: 'For subscription purchases:', value: 'Please state you have purchased and include a screenshot of your payment confirmation when you click "Ask Staff"' }
             );
 
         await channel.send({ embeds: [greetingEmbed] });
