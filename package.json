@@ -4,7 +4,8 @@
   "description": "Discord ticket bot with AI support for garden marketplace",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "build": "echo 'No build step required for Node.js bot'"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
