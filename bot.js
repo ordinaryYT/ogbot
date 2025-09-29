@@ -1,5 +1,6 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, SlashCommandBuilder, Routes, REST, ApplicationCommandType, ContextMenuCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionsBitField, SlashCommandBuilder, Routes, REST } = require('discord.js');
 const axios = require('axios');
+const http = require('http');
 require('dotenv').config();
 
 const client = new Client({
@@ -15,7 +16,7 @@ const client = new Client({
 const SUPPORT_ROLE_IDS = process.env.SUPPORT_ROLE_IDS ? process.env.SUPPORT_ROLE_IDS.split(',').filter(id => id.trim()) : [];
 const GUILD_ID = process.env.GUILD_ID;
 const TICKET_CATEGORY_ID = process.env.TICKET_CATEGORY_ID;
-const TICKET_CHANNEL_ID = process.env.TICKET_CHANNEL_ID; // Channel where ticket button appears
+const PORT = process.env.PORT || 3000;
 
 // OpenRouter configuration
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -23,6 +24,21 @@ const OPENROUTER_MODEL = 'mistralai/mistral-7b-instruct:free';
 
 // Store active tickets
 const activeTickets = new Map();
+
+// Create HTTP server for Render
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ 
+        status: 'OK', 
+        message: 'Discord bot is running',
+        bot: client.user?.tag || 'Starting...'
+    }));
+});
+
+// Start HTTP server
+server.listen(PORT, () => {
+    console.log(`🔄 HTTP server running on port ${PORT}`);
+});
 
 client.once('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}`);
@@ -410,7 +426,7 @@ async function generateAIResponse(messages) {
     const systemPrompt = `You are a helpful support assistant for "Grow a Garden" marketplace - a platform for buying and selling gardening-related items. 
 
 SERVER THEME & SUBSCRIPTION DETAILS:
-- Platform: Garden marketplace for buying/selling grow a garden items , sheckles wich is ingame currency, pets
+- Platform: Garden marketplace for buying/selling gardening supplies, plants, tools
 - Premium Subscription: £1 per month
 - Premium Benefits:
   * 🐉 A dragon fly each month
@@ -452,3 +468,18 @@ Always maintain a helpful, garden-themed tone while providing practical support.
 
 // Start the bot
 client.login(process.env.DISCORD_TOKEN);
+
+// Handle process exit
+process.on('SIGINT', () => {
+    console.log('🔄 Shutting down gracefully...');
+    server.close();
+    client.destroy();
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('🔄 Shutting down gracefully...');
+    server.close();
+    client.destroy();
+    process.exit(0);
+});
