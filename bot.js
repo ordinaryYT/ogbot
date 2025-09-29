@@ -148,7 +148,7 @@ async function setupTicketSystem(interaction) {
     await interaction.reply({ content: '✅ Ticket system setup complete!', ephemeral: true });
 }
 
-// Setup subscription system command (ADDED PAYMENT CONFIRMATION INSTRUCTIONS)
+// Setup subscription system command
 async function setupSubscriptionSystem(interaction) {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return await interaction.reply({ 
@@ -194,7 +194,7 @@ async function setupSubscriptionSystem(interaction) {
     await interaction.reply({ content: '✅ Subscription system setup complete!', ephemeral: true });
 }
 
-// Handle subscription purchase - DIRECT PAYPAL LINK
+// Handle subscription purchase - DIRECT PAYPAL LINK (NO EXTRA EMBED)
 async function handleSubscriptionPurchase(interaction) {
     const paypalLink = 'https://paypal.me/growagarden2323';
     
@@ -208,17 +208,8 @@ async function handleSubscriptionPurchase(interaction) {
                 .setEmoji('💳')
         );
 
-    const instructionEmbed = new EmbedBuilder()
-        .setTitle('🌱 Complete Your Purchase')
-        .setDescription('Click the button below to complete your payment via PayPal.\n\n**After payment:**\n1. Create a support ticket\n2. State you have purchased\n3. Click "Ask Staff"\n4. Send payment screenshot')
-        .setColor(0xf39c12)
-        .addFields(
-            { name: '⚠️ Reminder:', value: '**No refunds** - All sales are final' },
-            { name: '💳 Amount:', value: '£1.00 (One month)' }
-        );
-
     await interaction.reply({ 
-        embeds: [instructionEmbed], 
+        content: `**Redirecting to PayPal...**\n\nAfter payment, please:\n1. Create a support ticket\n2. State you have purchased\n3. Click "Ask Staff"\n4. Send payment screenshot\n\n⚠️ **No refunds** - All sales are final\n💳 **Amount:** £1.00 (One month)`,
         components: [paypalRow],
         ephemeral: true 
     });
