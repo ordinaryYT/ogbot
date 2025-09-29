@@ -410,7 +410,7 @@ async function generateAIResponse(messages) {
     const systemPrompt = `You are a helpful support assistant for "Grow a Garden" marketplace - a platform for buying and selling gardening-related items. 
 
 SERVER THEME & SUBSCRIPTION DETAILS:
-- Platform: Garden marketplace for buying/selling gardening supplies, plants, tools
+- Platform: Garden marketplace for buying/selling grow a garden items , sheckles wich is ingame currency, pets
 - Premium Subscription: £1 per month
 - Premium Benefits:
   * 🐉 A dragon fly each month
