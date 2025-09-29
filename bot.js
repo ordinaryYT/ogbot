@@ -584,7 +584,7 @@ Always maintain a helpful, garden-themed tone while providing practical support.
             'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
             'Content-Type': 'application/json',
             'HTTP-Referer': 'https://your-domain.com',
-            'X-Title': 'Garden Marketplace Bot'
+            'X-Title': 'Grow a garden'
         }
     });
 
