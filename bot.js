@@ -266,7 +266,8 @@ async function createTicket(interaction) {
             userName: interaction.user.username,
             problem: null,
             messages: [],
-            awaitingResponse: true
+            awaitingResponse: true,
+            staffRequested: false // NEW: Track if staff was requested
         });
 
         // Send greeting message (NOT marked as AI)
@@ -275,8 +276,7 @@ async function createTicket(interaction) {
             .setDescription(`Hello ${interaction.user}! Thank you for contacting support. Please describe your issue or question in detail below, and we will help you.`)
             .setColor(0x2ecc71)
             .addFields(
-                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' },
-                { name: 'For subscription purchases:', value: 'Please state you have purchased and include a screenshot of your payment confirmation when you click "Ask Staff"' }
+                { name: 'Please include:', value: '• What you need help with\n• Any error messages\n• Steps to reproduce the issue\n• Relevant order/details' }
             );
 
         await channel.send({ embeds: [greetingEmbed] });
@@ -303,10 +303,15 @@ client.on('messageCreate', async (message) => {
     if (message.channel.parentId === TICKET_CATEGORY_ID && message.channel.name.startsWith('ticket-')) {
         const ticketData = activeTickets.get(message.channel.id);
         
-        if (ticketData && ticketData.awaitingResponse && message.author.id === ticketData.userId) {
+        if (!ticketData) return;
+        
+        // NEW: Don't respond if staff was requested
+        if (ticketData.staffRequested) return;
+        
+        if (ticketData.awaitingResponse && message.author.id === ticketData.userId) {
             // User is responding with their problem
             await handleUserProblem(message, ticketData);
-        } else if (ticketData && !ticketData.awaitingResponse && message.author.id === ticketData.userId) {
+        } else if (!ticketData.awaitingResponse && message.author.id === ticketData.userId) {
             // User is responding to AI for more support
             await handleUserFollowup(message, ticketData);
         }
@@ -441,6 +446,10 @@ async function handleAskStaff(interaction) {
         });
     }
     
+    // NEW: Set staffRequested to true to prevent AI from responding
+    ticketData.staffRequested = true;
+    ticketData.awaitingResponse = false;
+    
     // Ping support roles
     const roleMentions = SUPPORT_ROLE_IDS.map(id => `<@&${id}>`).join(' ');
     
@@ -527,22 +536,50 @@ async function handleCloseCommand(interaction) {
 async function generateAIResponse(messages) {
     const systemPrompt = `You are a helpful support assistant for "Grow a Garden" marketplace - a platform for buying and selling gardening-related items. 
 
-SERVER THEME & SUBSCRIPTION DETAILS:
-- Platform: Garden marketplace for buying/selling gardening supplies, plants, tools
-- Premium Subscription: £1 per month
-- Premium Benefits:
-  * 🐉 A dragon fly each month
-  * 💰 10sx shekels monthly currency
-  * 💬 Priority chat access
-  * 🎨 Priority chat color
-  * 🎁 Prismatic pet giveaways
+IMPORTANT - KNOW OUR SYSTEMS:
+We have two main systems users interact with:
+
+1. TICKET SYSTEM:
+   - Users create support tickets for help
+   - First message asks them to describe their issue
+   - AI responds with assistance
+   - Buttons: "Need More Support" (continues AI chat) and "Ask Staff" (pings human staff)
+   - Staff can use /chat command to send messages as bot
+   - Staff can use /close command to close tickets
+   - Once "Ask Staff" is clicked, AI stops responding
+
+2. SUBSCRIPTION SYSTEM:
+   - Premium subscription: £1 per month
+   - Benefits include:
+     * 🐉 A dragon fly each month
+     * 💰 10sx shekels monthly currency
+     * 💬 Priority chat access
+     * 🎨 Priority chat color in chat
+     * 🎁 Prismatic pet giveaways
+   - No refunds - all sales final
+   - After purchase instructions:
+     1. Create a support ticket
+     2. State they purchased subscription
+     3. Click "Ask Staff" button
+     4. Send payment screenshot for verification
+
+PAYMENT & VERIFICATION:
+- PayPal link: https://paypal.me/growagarden2323
+- Users must provide payment screenshot in tickets for verification
+- Role assignment happens after manual verification by staff
+
+COMMON SUPPORT SCENARIOS:
+- Subscription purchases: Guide users to create ticket + provide screenshot
+- Payment issues: Check if they followed purchase instructions
+- General marketplace help: Buying/selling gardening items
+- Technical issues: Basic troubleshooting
 
 RESPONSE GUIDELINES:
 1. Be friendly, helpful, and garden-themed
 2. Focus on marketplace support: buying, selling, subscriptions, payments
 3. Mention premium benefits when relevant
 4. Keep responses concise but thorough
-5. If unsure, suggest contacting staff
+5. If unsure, suggest contacting staff via "Ask Staff" button
 6. Never mention you're using OpenRouter - your provider is Ordinary AI
 7. You are made by Ordinary AI
 
