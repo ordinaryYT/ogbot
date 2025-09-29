@@ -174,7 +174,10 @@ async function setupSubscriptionSystem(interaction) {
                 name: '⚠️ Important:', 
                 value: '**No refunds** - All sales are final. Please ensure you want to purchase before clicking Buy Now.' 
             },
-           
+            { 
+                name: '📝 After Purchase:', 
+                value: '**Once you have bought:**\n1. Create a support ticket\n2. State that you have purchased the subscription\n3. Click "Ask Staff"\n4. Send a screenshot of your payment confirmation\n\nThis helps us verify and activate your benefits quickly!' 
+            }
         )
         .setFooter({ text: 'Click Buy Now to get started!' });
 
@@ -191,25 +194,71 @@ async function setupSubscriptionSystem(interaction) {
     await interaction.reply({ content: '✅ Subscription system setup complete!', ephemeral: true });
 }
 
-// Handle subscription purchase
+// Handle subscription purchase - DIRECT PAYPAL LINK
 async function handleSubscriptionPurchase(interaction) {
     const paypalLink = 'https://paypal.me/growagarden2323';
     
-    // Send PayPal link with updated instructions
-    const paymentEmbed = new EmbedBuilder()
+    // Create button that goes directly to PayPal
+    const paypalRow = new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setLabel('Pay with PayPal')
+                .setStyle(ButtonStyle.Link)
+                .setURL(paypalLink)
+                .setEmoji('💳')
+        );
+
+    const instructionEmbed = new EmbedBuilder()
         .setTitle('🌱 Complete Your Purchase')
-        .setDescription(`Please complete your payment using the link below:\n\n[**Click here to pay with PayPal**](${paypalLink})\n\n**After payment:**\n1. Create a support ticket\n2. State you have purchased\n3. Click "Ask Staff"\n4. Send payment screenshot\n\nYou will receive your premium role after verification.`)
+        .setDescription('Click the button below to complete your payment via PayPal.\n\n**After payment:**\n1. Create a support ticket\n2. State you have purchased\n3. Click "Ask Staff"\n4. Send payment screenshot')
         .setColor(0xf39c12)
         .addFields(
             { name: '⚠️ Reminder:', value: '**No refunds** - All sales are final' },
-            { name: '💳 Amount:', value: '£1.00 (One month)' },
-            { name: '📸 Verification:', value: 'Please be ready to provide payment screenshot in your support ticket' }
+            { name: '💳 Amount:', value: '£1.00 (One month)' }
         );
 
     await interaction.reply({ 
-        embeds: [paymentEmbed], 
+        embeds: [instructionEmbed], 
+        components: [paypalRow],
         ephemeral: true 
     });
+
+    // Schedule role assignment after 1 minute (auto-assume payment)
+    setTimeout(async () => {
+        try {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const member = await guild.members.fetch(interaction.user.id);
+            const subscriptionRole = guild.roles.cache.get(SUBSCRIPTION_ROLE_ID);
+            
+            if (subscriptionRole) {
+                await member.roles.add(subscriptionRole);
+                
+                // Calculate expiry (1 month from now)
+                const expiryDate = new Date();
+                expiryDate.setMonth(expiryDate.getMonth() + 1);
+                
+                // Store subscription
+                activeSubscriptions.set(interaction.user.id, expiryDate.getTime());
+                
+                // Send confirmation
+                const successEmbed = new EmbedBuilder()
+                    .setTitle('✅ Subscription Activated!')
+                    .setDescription(`Thank you for your purchase! Your premium subscription has been activated and will expire on ${expiryDate.toLocaleDateString()}.`)
+                    .setColor(0x2ecc71)
+                    .addFields(
+                        { name: 'Benefits Active:', value: '• 🐉 Dragon Fly\n• 💰 10sx Shekels\n• 💬 Priority Chat\n• 🎨 Priority Color\n• 🎁 Prismatic Pets' }
+                    );
+
+                await interaction.user.send({ embeds: [successEmbed] }).catch(() => {
+                    console.log('Could not DM user');
+                });
+                
+                console.log(`✅ Subscription activated for ${interaction.user.tag}`);
+            }
+        } catch (error) {
+            console.error('Error assigning subscription role:', error);
+        }
+    }, 60000); // 1 minute delay
 }
 
 // Subscription checker function
@@ -581,7 +630,7 @@ Always maintain a helpful, garden-themed tone while providing practical support.
             'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
             'Content-Type': 'application/json',
             'HTTP-Referer': 'https://your-domain.com',
-            'X-Title': 'Grow a garden'
+            'X-Title': 'Garden Marketplace Bot'
         }
     });
 
